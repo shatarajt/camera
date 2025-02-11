@@ -5,84 +5,80 @@ from vision_msgs.msg import Detection2DArray
 from cv_bridge import CvBridge
 import cv2
 
-class RealSenseSubscriber(Node):
+class MultiCameraSubscriber(Node):
     def __init__(self):
-        super().__init__("realsense_subscriber")
+        super().__init__("multi_camera_subscriber")
         
-        # Create subscriptions for the color and depth image topics
-        self.subscription_color = self.create_subscription(
-            Image, 'camera/color/image_raw', self.color_frame_callback, 10
-        )
-        self.subscription_depth = self.create_subscription(
-            Image, 'camera/depth/image_raw', self.depth_frame_callback, 10
-        )
-        self.subscription_detections = self.create_subscription(
-            Detection2DArray, 'camera/detections', self.detection_callback, 10
-        )
+        self.bridge = CvBridge()
         
-        # Create CvBridge to convert ROS messages to OpenCV
-        self.br = CvBridge()
+        # Max 3 cameras
+        self.camera_frames = {f"camera{i}": None for i in range(1, 4)}
+        self.depth_frames = {f"camera{i}": None for i in range(1, 4)}
+        self.detections = {f"camera{i}": [] for i in range(1, 4)}
         
-        # Initialize frame storage
-        self.color_frame = None
-        self.depth_frame = None
-        self.detections = None
+        # Subscribe to multiple cameras (color, depth, and detection topics)
+        for i in range(1, 4):
+            cam_topic = f"camera{i}/color/image_raw"
+            depth_topic = f"camera{i}/depth/image_raw"
+            detect_topic = f"camera{i}/detections"
 
-    def color_frame_callback(self, data):
-        #Callback for receiving color frame.
-        self.get_logger().info("Receiving color frame")
-        self.color_frame = self.br.imgmsg_to_cv2(data, desired_encoding='bgr8')
+            self.create_subscription(Image, cam_topic, lambda msg, cam=cam_topic: self.color_frame_callback(msg, cam), 10)
+            self.create_subscription(Image, depth_topic, lambda msg, cam=depth_topic: self.depth_frame_callback(msg, cam), 10)
+            self.create_subscription(Detection2DArray, detect_topic, lambda msg, cam=detect_topic: self.detection_callback(msg, cam), 10)
 
-    def depth_frame_callback(self, data):
-        #Callback for receiving depth frame. 
-        self.get_logger().info("Receiving depth frame")
-        self.depth_frame = self.br.imgmsg_to_cv2(data, desired_encoding='bgr8')
+    def color_frame_callback(self, data, camera_topic):
+        """Receives color frames from a specific camera."""
+        camera_id = camera_topic.split('/')[0]  # Extract camera1, camera2, etc.
+        self.camera_frames[camera_id] = self.bridge.imgmsg_to_cv2(data, desired_encoding='bgr8')
 
-    def detection_callback(self, data):
-        # Callback for receiving object detection data. 
-        self.get_logger().info(f"Received {len(data.detections)} detections")
-        self.detections = data.detections
+    def depth_frame_callback(self, data, depth_topic):
+        """Receives depth frames from a specific camera."""
+        camera_id = depth_topic.split('/')[0]
+        self.depth_frames[camera_id] = self.bridge.imgmsg_to_cv2(data, desired_encoding='bgr8')
+
+    def detection_callback(self, data, detect_topic):
+        """Receives object detection data from a specific camera."""
+        camera_id = detect_topic.split('/')[0]
+        self.detections[camera_id] = data.detections
 
     def display_frames(self):
-        #Display color, depth and detection 
-        if self.color_frame is not None:
-            cv2.imshow("Color Frame", self.color_frame)
-        
-        if self.depth_frame is not None:
-            cv2.imshow("Depth Frame", self.depth_frame)
+        """Display color and depth frames for all active cameras."""
+        for camera_id in self.camera_frames.keys():
+            color_frame = self.camera_frames[camera_id]
+            depth_frame = self.depth_frames[camera_id]
 
-        if self.detections:
-            for detection in self.detections:
-                # bounding box and coordinates
-                x = int(detection.bbox.center.position.x)
-                y = int(detection.bbox.center.position.y)
-                w = int(detection.bbox.size_x)
-                h = int(detection.bbox.size_y)
+            if color_frame is not None:
+                frame = color_frame.copy()
 
-                # Draw bounding box
-                if self.color_frame is not None:
-                    cv2.rectangle(self.color_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                    cv2.putText(self.color_frame, f"Object", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                # Draw bounding boxes for detected objects
+                for detection in self.detections[camera_id]:
+                    x = int(detection.bbox.center.position.x)
+                    y = int(detection.bbox.center.position.y)
+                    w = int(detection.bbox.size_x)
+                    h = int(detection.bbox.size_y)
 
-            if self.color_frame is not None:
-                cv2.imshow("Detected Objects", self.color_frame)
+                    # Draw bounding box on color frame
+                    cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                    cv2.putText(frame, f"Object", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+                cv2.imshow(f"{camera_id} - Color Frame", frame)
+
+            if depth_frame is not None:
+                cv2.imshow(f"{camera_id} - Depth Frame", depth_frame)
+
+        cv2.waitKey(1)
 
     def spin(self):
-        """ Periodically updates and shows frames. """
-        rate = self.create_rate(30)  # 30 Hz rate for displaying frames
+        """Continuously process incoming frames and display them."""
         while rclpy.ok():
-            self.display_frames()
             rclpy.spin_once(self)
-            rate.sleep()
+            self.display_frames()
 
 def main(args=None):
     rclpy.init(args=args)
-    subscriber_node = RealSenseSubscriber()
-    
-    # Start spinning the node and displaying frames
-    subscriber_node.spin()
-    
-    subscriber_node.destroy_node()
+    subscriber = MultiCameraSubscriber()
+    subscriber.spin()
+    subscriber.destroy_node()
     rclpy.shutdown()
 
 if __name__ == "__main__":
