@@ -24,7 +24,7 @@ class RealSenseObjectDetection(Node):
         self.num_cameras = len(self.devices)
 
         if self.num_cameras == 0:
-            raise Exception("No RealSense camera detected!")
+            raise Exception("Silly goose plug in a camera")
 
         # Configure RealSense streams
         self.pipeline = rs.pipeline()
@@ -32,7 +32,7 @@ class RealSenseObjectDetection(Node):
         self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 15)
         self.config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 15)
 
-        # Start camera stream
+        # Start camera 
         self.pipeline.start(self.config)
         self.running = True
 
@@ -86,6 +86,13 @@ class RealSenseObjectDetection(Node):
                 x, y, w, h = cv2.boundingRect(contour)
                 center_x, center_y = x + w // 2, y + h // 2
                 distance = depth_frame.get_distance(center_x, center_y)
+                
+                # X and Y are the coordinates starting at the top left corner
+                # W and H are the width and height of the box
+                #1000 pixels is about a meter- play witht his numnber
+                
+                print(f"Object detected at ({center_x}, {center_y}) -> Distance: {distance:.2f} meters")
+
 
                 # Draw bounding box
                 cv2.rectangle(color_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
@@ -101,21 +108,25 @@ class RealSenseObjectDetection(Node):
 
             # Publish detected objects
             self.detection_publisher.publish(detections)
+            
+            if detections.detections:
+                closest_detection = min(detections.detections, key=lambda d: d.bbox.center.position.x)
+                print(f"OBJECT DETECTED OBJECT DETECTED: {closest_detection.bbox.center.position.x:.2f} meters")
 
             # Display images
             combined_image = np.hstack((color_image, depth_colormap))
-            cv2.imshow("RealSense Object Detection", combined_image)
+            cv2.imshow("Jarvis objected detected", combined_image)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 self.running = False
 
     def cleanup(self):
-        """ Stops camera and cleans up resources. """
+     
         self.running = False
         self.thread.join()
         self.pipeline.stop()
         cv2.destroyAllWindows()
-        self.get_logger().info("Stopped RealSense camera.")
+        self.get_logger().info("Stopping.....")
 
 def main(args=None):
     rclpy.init(args=args)
@@ -124,7 +135,7 @@ def main(args=None):
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
-        node.get_logger().info("Shutting down RealSense node.")
+        node.get_logger().info("Turning off......")
 
     node.cleanup()
     node.destroy_node()
