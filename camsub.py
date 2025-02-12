@@ -4,7 +4,6 @@ from sensor_msgs.msg import Image
 from vision_msgs.msg import Detection2DArray
 from cv_bridge import CvBridge
 import cv2
-import numpy as np
 
 
 class IntelSubscriber(Node):
