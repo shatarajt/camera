@@ -5,13 +5,13 @@ from vision_msgs.msg import Detection2DArray
 from cv_bridge import CvBridge
 import cv2
 
-class MultiCameraSubscriber(Node):
+class CameraSubscriber(Node):
     def __init__(self):
         super().__init__("multi_camera_subscriber")
         
         self.bridge = CvBridge()
         
-        # Max 3 cameras
+        #3 cameras
         self.camera_frames = {f"camera{i}": None for i in range(1, 4)}
         self.depth_frames = {f"camera{i}": None for i in range(1, 4)}
         self.detections = {f"camera{i}": [] for i in range(1, 4)}
@@ -22,19 +22,19 @@ class MultiCameraSubscriber(Node):
             depth_topic = f"camera{i}/depth/image_raw"
             detect_topic = f"camera{i}/detections"
 
-            self.create_subscription(Image, cam_topic, lambda msg, cam=cam_topic: self.color_frame_callback(msg, cam), 10)
-            self.create_subscription(Image, depth_topic, lambda msg, cam=depth_topic: self.depth_frame_callback(msg, cam), 10)
-            self.create_subscription(Detection2DArray, detect_topic, lambda msg, cam=detect_topic: self.detection_callback(msg, cam), 10)
+            self.create_subscription(Image, cam_topic, partial(self.color_frame_callback, camera_id=f"camera{i}"), 10)
+            self.create_subscription(Image, depth_topic, partial(self.depth_frame_callback, camera_id=f"camera{i}"), 10)
+            self.create_subscription(Detection2DArray, detect_topic, partial(self.detection_callback, camera_id=f"camera{i}"), 10)
 
     def color_frame_callback(self, data, camera_topic):
         """Receives color frames from a specific camera."""
-        camera_id = camera_topic.split('/')[0]  # Extract camera1, camera2, etc.
+        camera_id = camera_topic.split('/')[0]  # Extract camera1, camera2, and camera3.
         self.camera_frames[camera_id] = self.bridge.imgmsg_to_cv2(data, desired_encoding='bgr8')
 
     def depth_frame_callback(self, data, depth_topic):
         """Receives depth frames from a specific camera."""
         camera_id = depth_topic.split('/')[0]
-        self.depth_frames[camera_id] = self.bridge.imgmsg_to_cv2(data, desired_encoding='bgr8')
+        self.depth_frames[camera_id] = self.bridge.imgmsg_to_cv2(data, desired_encoding='passthrough')
 
     def detection_callback(self, data, detect_topic):
         """Receives object detection data from a specific camera."""
@@ -76,7 +76,7 @@ class MultiCameraSubscriber(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    subscriber = MultiCameraSubscriber()
+    subscriber = CameraSubscriber()
     subscriber.spin()
     subscriber.destroy_node()
     rclpy.shutdown()
