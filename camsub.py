@@ -10,7 +10,7 @@ class CamSubscriber(Node):
     def __init__(self):
         super().__init__("camera_subscriber")
         
-        # Create subscribers for multiple cameras (RGB, Depth, and an extra camera)
+        # Create subscribers for cameras (RGB and Depth)
         self.subscription_rgb1 = self.create_subscription(
             Image, "rgb_frame1", self.rgb_frame_callback1, 10
         )
