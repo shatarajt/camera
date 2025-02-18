@@ -6,9 +6,9 @@ from cv_bridge import CvBridge
 import cv2
 
 
-class MultiCameraSubscriber(Node):
+class CamSubscriber(Node):
     def __init__(self):
-        super().__init__("multi_camera_subscriber")
+        super().__init__("camera_subscriber")
         
         # Create subscribers for multiple cameras (RGB, Depth, and an extra camera)
         self.subscription_rgb1 = self.create_subscription(
@@ -95,9 +95,9 @@ class MultiCameraSubscriber(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    multi_camera_subscriber = MultiCameraSubscriber()
-    rclpy.spin(multi_camera_subscriber)
-    multi_camera_subscriber.destroy_node()
+    camera_subscriber = CamSubscriber()
+    rclpy.spin(camera_subscriber)
+    camera_subscriber.destroy_node()
     rclpy.shutdown()
 
 
