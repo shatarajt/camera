@@ -4,102 +4,87 @@ from sensor_msgs.msg import Image
 from vision_msgs.msg import Detection2DArray
 from cv_bridge import CvBridge
 import cv2
-
+import numpy as np
 
 class CamSubscriber(Node):
     def __init__(self):
         super().__init__("camera_subscriber")
-        
-        # Create subscribers for cameras (RGB and Depth)
-        self.subscription_rgb1 = self.create_subscription(
-            Image, "rgb_frame1", self.rgb_frame_callback1, 10
-        )
-        self.subscription_depth1 = self.create_subscription(
-            Image, "depth_frame1", self.depth_frame_callback1, 10
-        )
-        
-        self.subscription_rgb2 = self.create_subscription(
-            Image, "rgb_frame2", self.rgb_frame_callback2, 10
-        )
-        self.subscription_depth2 = self.create_subscription(
-            Image, "depth_frame2", self.depth_frame_callback2, 10
-        )
-        
-        self.subscription_rgb3 = self.create_subscription(
-            Image, "rgb_frame3", self.rgb_frame_callback3, 10
-        )
-        self.subscription_depth3 = self.create_subscription(
-            Image, "depth_frame3", self.depth_frame_callback3, 10
-        )
-        
-        self.subscription_detections = self.create_subscription(
-            Detection2DArray, "detections", self.detection_callback, 10
-        )
 
-        # Initialize CvBridge to convert ROS images to OpenCV images
+        # Create subscribers for three cameras (RGB, Depth, and Detections)
+        self.subscribers = []
         self.br = CvBridge()
 
-        # Variables to hold frames and detections
-        self.current_rgb_frames = [None, None, None]
-        self.current_depth_frames = [None, None, None]
-        self.current_detections = []
+        self.rgb_frames = [None] * 3
+        self.depth_frames = [None] * 3
+        self.detections = [[] for _ in range(3)]
 
-    def rgb_frame_callback1(self, data):
-        self.current_rgb_frames[0] = self.br.imgmsg_to_cv2(data, "bgr8")
-        self.show_frame(self.current_rgb_frames[0], "RGB Camera 1")
-    
-    def rgb_frame_callback2(self, data):
-        self.current_rgb_frames[1] = self.br.imgmsg_to_cv2(data, "bgr8")
-        self.show_frame(self.current_rgb_frames[1], "RGB Camera 2")
-    
-    def rgb_frame_callback3(self, data):
-        self.current_rgb_frames[2] = self.br.imgmsg_to_cv2(data, "bgr8")
-        self.show_frame(self.current_rgb_frames[2], "RGB Camera 3")
-    
-    def depth_frame_callback1(self, data):
-        self.current_depth_frames[0] = self.br.imgmsg_to_cv2(data, "bgr8")
-        self.show_frame(self.current_depth_frames[0], "Depth Camera 1")
-    
-    def depth_frame_callback2(self, data):
-        self.current_depth_frames[1] = self.br.imgmsg_to_cv2(data, "bgr8")
-        self.show_frame(self.current_depth_frames[1], "Depth Camera 2")
-    
-    def depth_frame_callback3(self, data):
-        self.current_depth_frames[2] = self.br.imgmsg_to_cv2(data, "bgr8")
-        self.show_frame(self.current_depth_frames[2], "Depth Camera 3")
-    
-    def detection_callback(self, detections_msg):
-        self.get_logger().info("Receiving Object Detection data")
-        self.current_detections = detections_msg.detections
-        
-        for i, frame in enumerate(self.current_rgb_frames):
-            if frame is not None:
-                frame_with_detections = frame.copy()
-                for detection in self.current_detections:
-                    x = int(detection.bbox.center.position.x)
-                    y = int(detection.bbox.center.position.y)
-                    w = int(detection.bbox.size_x)
-                    h = int(detection.bbox.size_y)
+        for i in range(3):
+            self.subscribers.append({
+                "rgb": self.create_subscription(
+                    Image, f"rgb_frame{i+1}", lambda msg, idx=i: self.rgb_callback(msg, idx), 10
+                ),
+                "depth": self.create_subscription(
+                    Image, f"depth_frame{i+1}", lambda msg, idx=i: self.depth_callback(msg, idx), 10
+                ),
+                "detections": self.create_subscription(
+                    Detection2DArray, f"detections{i+1}", lambda msg, idx=i: self.detection_callback(msg, idx), 10
+                )
+            })
 
-                    cv2.rectangle(frame_with_detections, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                    cv2.putText(frame_with_detections, f"{x},{y}", (x, y - 10), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                
-                self.show_frame(frame_with_detections, f"RGB Camera {i+1} with Detections")
-    
-    def show_frame(self, frame, window_name):
-        if frame is not None:
-            cv2.imshow(window_name, frame)
-            cv2.waitKey(1)
+        self.get_logger().info("Camera Subscribers Initialized")
 
+    def rgb_callback(self, msg, idx):
+        """Callback for RGB frames"""
+        try:
+            self.rgb_frames[idx] = self.br.imgmsg_to_cv2(msg, "bgr8")
+            self.display_frame(idx)
+        except Exception as e:
+            self.get_logger().error(f"Error processing RGB frame {idx+1}: {str(e)}")
+
+    def depth_callback(self, msg, idx):
+        """Callback for Depth frames"""
+        try:
+            depth_image = self.br.imgmsg_to_cv2(msg, desired_encoding="16UC1")
+            depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
+            self.depth_frames[idx] = depth_colormap
+            self.display_frame(idx)
+        except Exception as e:
+            self.get_logger().error(f"Error processing Depth frame {idx+1}: {str(e)}")
+
+    def detection_callback(self, msg, idx):
+        """Callback for Object Detections"""
+        self.detections[idx] = msg.detections
+        self.display_frame(idx)
+
+    def display_frame(self, idx):
+        """Display the RGB, Depth, and Detections overlayed"""
+        if self.rgb_frames[idx] is None or self.depth_frames[idx] is None:
+            return  # Wait until both frames are received
+
+        # Overlay detections on RGB frame
+        frame_with_detections = self.rgb_frames[idx].copy()
+
+        for detection in self.detections[idx]:
+            x = int(detection.bbox.center.position.x)
+            y = int(detection.bbox.center.position.y)
+            w = int(detection.bbox.size_x)
+            h = int(detection.bbox.size_y)
+
+            cv2.rectangle(frame_with_detections, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.putText(frame_with_detections, f"{x},{y}", (x, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+        # Stack RGB and Depth for visualization
+        combined_view = np.hstack((frame_with_detections, self.depth_frames[idx]))
+        cv2.imshow(f"Camera {idx+1} - RGB & Depth", combined_view)
+        cv2.waitKey(1)
 
 def main(args=None):
     rclpy.init(args=args)
-    camera_subscriber = CamSubscriber()
-    rclpy.spin(camera_subscriber)
-    camera_subscriber.destroy_node()
+    cam_subscriber = CamSubscriber()
+    rclpy.spin(cam_subscriber)
+    cam_subscriber.destroy_node()
     rclpy.shutdown()
-
 
 if __name__ == "__main__":
     main()
