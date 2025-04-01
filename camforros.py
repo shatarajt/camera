@@ -6,12 +6,13 @@ from cv_bridge import CvBridge
 import cv2
 import pyrealsense2 as rs
 import numpy as np
+import time
 
 class CamPublisher(Node):
     def __init__(self):
         super().__init__("intel_publisher")
         
-        # Publishers
+        # Publishers for each camera
         self.intel_publisher_rgb_1 = self.create_publisher(Image, "camera_1/rgb_frame", 10)
         self.intel_publisher_depth_1 = self.create_publisher(Image, "camera_1/depth_frame", 10)
         self.intel_publisher_detections_1 = self.create_publisher(Detection2DArray, "camera_1/detections", 10)
@@ -29,27 +30,45 @@ class CamPublisher(Node):
         self.br_rgb = CvBridge()
 
         try:
-            # Initialize RealSense pipeline for three cameras
+            # List available devices and get serial numbers
+            context = rs.context()
+            devices = context.query_devices()
+            if len(devices) < 3:
+                raise RuntimeError("Not enough RealSense devices connected. Expected 3.")
+
+            serial_numbers = [device.get_info(rs.camera_info.serial_number) for device in devices]
+            self.get_logger().info(f"Found devices with serial numbers: {serial_numbers}")
+
+            # Initialize RealSense pipeline for the first camera (by serial number)
             self.pipe_1 = rs.pipeline()
             self.cfg_1 = rs.config()
+            self.cfg_1.enable_device(serial_numbers[0])  # Use serial number for the first camera
             self.cfg_1.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 15)
             self.cfg_1.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 15)
             self.pipe_1.start(self.cfg_1)
-            
+            time.sleep(1)
+
+            # Initialize RealSense pipeline for the second camera (by serial number)
             self.pipe_2 = rs.pipeline()
             self.cfg_2 = rs.config()
+            self.cfg_2.enable_device(serial_numbers[1])  # Use serial number for the second camera
             self.cfg_2.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 15)
             self.cfg_2.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 15)
             self.pipe_2.start(self.cfg_2)
-            
+            time.sleep(1)
+
+            # Initialize RealSense pipeline for the third camera (by serial number)
             self.pipe_3 = rs.pipeline()
             self.cfg_3 = rs.config()
+            self.cfg_3.enable_device(serial_numbers[2])  # Use serial number for the third camera
             self.cfg_3.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 15)
             self.cfg_3.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 15)
             self.pipe_3.start(self.cfg_3)
+            time.sleep(1)
 
             self.get_logger().info("RealSense cameras connected and streaming.")
             self.timer = self.create_timer(timer_period, self.timer_callback)
+        
         except Exception as e:
             self.get_logger().error(f"Error with RealSense cameras: {str(e)}")
 
